@@ -3277,9 +3277,11 @@ void netcode_client_update( struct netcode_client_t * client, double time )
         return;
 
     netcode_client_receive_packets( client );
-
     netcode_client_send_packets( client );
+}
 
+void netcode_client_update_state(struct netcode_client_t* client, double time)
+{
     if ( client->state > NETCODE_CLIENT_STATE_DISCONNECTED && client->state < NETCODE_CLIENT_STATE_CONNECTED )
     {
         uint64_t connect_token_expire_seconds = ( client->connect_token.expire_timestamp - client->connect_token.create_timestamp );            
@@ -4091,7 +4093,7 @@ void netcode_server_send_client_packet( struct netcode_server_t * server, void *
     server->client_last_packet_send_time[client_index] = server->time;
 }
 
-void netcode_server_disconnect_client_internal( struct netcode_server_t * server, int client_index, int send_disconnect_packets )
+void netcode_server_disconnect_client_internal( struct netcode_server_t * server, int client_index, int send_disconnect_packets, int reason )
 {
     netcode_assert( server );
     netcode_assert( server->running );
@@ -4104,7 +4106,7 @@ void netcode_server_disconnect_client_internal( struct netcode_server_t * server
 
     if ( server->config.connect_disconnect_callback )
     {
-        server->config.connect_disconnect_callback( server->config.callback_context, client_index, 0 );
+        server->config.connect_disconnect_callback( server->config.callback_context, client_index, 0, reason );
     }
 
     if ( send_disconnect_packets )
@@ -4152,7 +4154,7 @@ void netcode_server_disconnect_client_internal( struct netcode_server_t * server
     netcode_assert( server->num_connected_clients >= 0 );
 }
 
-void netcode_server_disconnect_client( struct netcode_server_t * server, int client_index )
+void netcode_server_disconnect_client(struct netcode_server_t* server, int client_index, int reason)
 {
     netcode_assert( server );
 
@@ -4169,7 +4171,7 @@ void netcode_server_disconnect_client( struct netcode_server_t * server, int cli
     if ( server->client_loopback[client_index] )
         return;
 
-    netcode_server_disconnect_client_internal( server, client_index, 1 );
+    netcode_server_disconnect_client_internal( server, client_index, 1, reason );
 }
 
 void netcode_server_disconnect_all_clients( struct netcode_server_t * server )
@@ -4184,7 +4186,7 @@ void netcode_server_disconnect_all_clients( struct netcode_server_t * server )
     {
         if ( server->client_connected[i] && !server->client_loopback[i] )
         {
-            netcode_server_disconnect_client_internal( server, i, 1 );
+			netcode_server_disconnect_client_internal(server, i, 1, NETCORE_SERVER_DISCONNECT_KICK_ALL);
         }
     }
 }
@@ -4408,7 +4410,7 @@ void netcode_server_connect_client( struct netcode_server_t * server,
 
     if ( server->config.connect_disconnect_callback )
     {
-        server->config.connect_disconnect_callback( server->config.callback_context, client_index, 1 );
+        server->config.connect_disconnect_callback( server->config.callback_context, client_index, 1, 0 );
     }
 }
 
@@ -4552,7 +4554,7 @@ void netcode_server_process_packet_internal( struct netcode_server_t * server,
             if ( client_index != -1 )
             {
                 netcode_printf( NETCODE_LOG_LEVEL_DEBUG, "server received disconnect packet from client %d\n", client_index );
-                netcode_server_disconnect_client_internal( server, client_index, 0 );
+				netcode_server_disconnect_client_internal(server, client_index, 0, NETCODE_SERVER_DISCONNECT_QUIT);
            }
         }
         break;
@@ -4781,7 +4783,7 @@ void netcode_server_check_for_timeouts( struct netcode_server_t * server )
              ( server->client_last_packet_receive_time[i] + server->client_timeout[i] <= server->time ) )
         {
             netcode_printf( NETCODE_LOG_LEVEL_INFO, "server timed out client %d\n", i );
-            netcode_server_disconnect_client_internal( server, i, 0 );
+			netcode_server_disconnect_client_internal(server, i, 0, NETCODE_SERVER_DISCONNECT_TIMEOUT);
             return;
         }
     }
@@ -4994,11 +4996,11 @@ void netcode_server_connect_loopback_client( struct netcode_server_t * server, i
 
     if ( server->config.connect_disconnect_callback )
     {
-        server->config.connect_disconnect_callback( server->config.callback_context, client_index, 1 );
+        server->config.connect_disconnect_callback( server->config.callback_context, client_index, 1, 0 );
     }
 }
 
-void netcode_server_disconnect_loopback_client( struct netcode_server_t * server, int client_index )
+void netcode_server_disconnect_loopback_client( struct netcode_server_t * server, int client_index, int reason )
 {
     netcode_assert( server );
     netcode_assert( client_index >= 0 );
@@ -5011,7 +5013,7 @@ void netcode_server_disconnect_loopback_client( struct netcode_server_t * server
 
     if ( server->config.connect_disconnect_callback )
     {
-        server->config.connect_disconnect_callback( server->config.callback_context, client_index, 0 );
+        server->config.connect_disconnect_callback( server->config.callback_context, client_index, 0, reason );
     }
 
     while ( 1 )
@@ -6594,6 +6596,7 @@ void test_client_server_connect()
         netcode_network_simulator_update( network_simulator, time );
 
         netcode_client_update( client, time );
+		netcode_client_update_state(client, time);
 
         netcode_server_update( server, time );
 
@@ -6623,7 +6626,8 @@ void test_client_server_connect()
     {
         netcode_network_simulator_update( network_simulator, time );
 
-        netcode_client_update( client, time );
+                netcode_client_update(client, time);
+		netcode_client_update_state(client, time);
 
         netcode_server_update( server, time );
 
@@ -6663,7 +6667,7 @@ void test_client_server_connect()
         {
             if ( netcode_server_client_connected( server, 0 ) )
             {
-                netcode_server_disconnect_client( server, 0 );
+				netcode_server_disconnect_client(server, 0, NETCODE_SERVER_DISCONNECT_QUIT);
             }
         }
 
@@ -6722,7 +6726,8 @@ void test_client_server_ipv4_socket_connect()
 
         while ( 1 )
         {
-            netcode_client_update( client, time );
+			netcode_client_update(client, time);
+			netcode_client_update_state(client, time);
 
             netcode_server_update( server, time );
 
@@ -6778,7 +6783,8 @@ void test_client_server_ipv4_socket_connect()
 
         while ( 1 )
         {
-            netcode_client_update( client, time );
+			netcode_client_update(client, time);
+			netcode_client_update_state(client, time);
 
             netcode_server_update( server, time );
 
@@ -6834,7 +6840,8 @@ void test_client_server_ipv4_socket_connect()
 
         while ( 1 )
         {
-            netcode_client_update( client, time );
+			netcode_client_update(client, time);
+			netcode_client_update_state(client, time);
 
             netcode_server_update( server, time );
 
@@ -6890,7 +6897,8 @@ void test_client_server_ipv4_socket_connect()
 
         while ( 1 )
         {
-            netcode_client_update( client, time );
+			netcode_client_update(client, time);
+			netcode_client_update_state(client, time);
 
             netcode_server_update( server, time );
 
@@ -6949,7 +6957,8 @@ void test_client_server_ipv6_socket_connect()
 
         while ( 1 )
         {
-            netcode_client_update( client, time );
+			netcode_client_update(client, time);
+			netcode_client_update_state(client, time);
 
             netcode_server_update( server, time );
 
@@ -7005,7 +7014,8 @@ void test_client_server_ipv6_socket_connect()
 
         while ( 1 )
         {
-            netcode_client_update( client, time );
+			netcode_client_update(client, time);
+			netcode_client_update_state(client, time);
 
             netcode_server_update( server, time );
 
@@ -7061,7 +7071,8 @@ void test_client_server_ipv6_socket_connect()
 
         while ( 1 )
         {
-            netcode_client_update( client, time );
+			netcode_client_update(client, time);
+			netcode_client_update_state(client, time);
 
             netcode_server_update( server, time );
 
@@ -7117,7 +7128,8 @@ void test_client_server_ipv6_socket_connect()
 
         while ( 1 )
         {
-            netcode_client_update( client, time );
+			netcode_client_update(client, time);
+			netcode_client_update_state(client, time);
 
             netcode_server_update( server, time );
 
@@ -7188,7 +7200,8 @@ void test_client_server_keep_alive()
     {
         netcode_network_simulator_update( network_simulator, time );
 
-        netcode_client_update( client, time );
+        netcode_client_update(client, time);
+		netcode_client_update_state(client, time);
 
         netcode_server_update( server, time );
 
@@ -7215,7 +7228,8 @@ void test_client_server_keep_alive()
     {
         netcode_network_simulator_update( network_simulator, time );
 
-        netcode_client_update( client, time );
+        netcode_client_update(client, time);
+		netcode_client_update_state(client, time);
 
         netcode_server_update( server, time );
 
@@ -7323,6 +7337,7 @@ void test_client_server_multiple_clients()
             for ( j = 0; j < max_clients[i]; ++j )
             {
                 netcode_client_update( client[j], time );
+				netcode_client_update_state(client[j], time);
             }
 
             netcode_server_update( server, time );
@@ -7370,7 +7385,8 @@ void test_client_server_multiple_clients()
 
             for ( j = 0; j < max_clients[i]; ++j )
             {
-                netcode_client_update( client[j], time );
+				netcode_client_update(client[j], time);
+				netcode_client_update_state(client[j], time);
             }
 
             netcode_server_update( server, time );
@@ -7523,7 +7539,8 @@ void test_client_server_multiple_servers()
     {
         netcode_network_simulator_update( network_simulator, time );
 
-        netcode_client_update( client, time );
+        netcode_client_update(client, time);
+		netcode_client_update_state(client, time);
 
         netcode_server_update( server, time );
 
@@ -7553,7 +7570,8 @@ void test_client_server_multiple_servers()
     {
         netcode_network_simulator_update( network_simulator, time );
 
-        netcode_client_update( client, time );
+        netcode_client_update(client, time);
+		netcode_client_update_state(client, time);
 
         netcode_server_update( server, time );
 
@@ -7592,7 +7610,7 @@ void test_client_server_multiple_servers()
         {
             if ( netcode_server_client_connected( server, 0 ) )
             {
-                netcode_server_disconnect_client( server, 0 );
+				netcode_server_disconnect_client(server, 0, NETCODE_SERVER_DISCONNECT_QUIT);
             }
         }
 
@@ -7644,7 +7662,8 @@ void test_client_error_connect_token_expired()
 
     netcode_client_connect( client, connect_token );
 
-    netcode_client_update( client, time );
+    netcode_client_update(client, time);
+	netcode_client_update_state(client, time);
 
     check( netcode_client_state( client ) == NETCODE_CLIENT_STATE_CONNECT_TOKEN_EXPIRED );
 
@@ -7739,7 +7758,8 @@ void test_client_error_connection_timed_out()
     {
         netcode_network_simulator_update( network_simulator, time );
 
-        netcode_client_update( client, time );
+        netcode_client_update(client, time);
+		netcode_client_update_state(client, time);
 
         netcode_server_update( server, time );
 
@@ -7763,7 +7783,8 @@ void test_client_error_connection_timed_out()
     {
         netcode_network_simulator_update( network_simulator, time );
 
-        netcode_client_update( client, time );
+        netcode_client_update(client, time);
+		netcode_client_update_state(client, time);
 
         if ( netcode_client_state( client ) <= NETCODE_CLIENT_STATE_DISCONNECTED )
             break;
@@ -7832,7 +7853,8 @@ void test_client_error_connection_response_timeout()
     {
         netcode_network_simulator_update( network_simulator, time );
 
-        netcode_client_update( client, time );
+        netcode_client_update(client, time);
+		netcode_client_update_state(client, time);
 
         netcode_server_update( server, time );
 
@@ -7906,7 +7928,8 @@ void test_client_error_connection_request_timeout()
     {
         netcode_network_simulator_update( network_simulator, time );
 
-        netcode_client_update( client, time );
+        netcode_client_update(client, time);
+		netcode_client_update_state(client, time);
 
         netcode_server_update( server, time );
 
@@ -7981,6 +8004,7 @@ void test_client_error_connection_denied()
         netcode_network_simulator_update( network_simulator, time );
 
         netcode_client_update( client, time );
+        netcode_client_update_state( client, time );
 
         netcode_server_update( server, time );
 
@@ -8021,8 +8045,10 @@ void test_client_error_connection_denied()
         netcode_network_simulator_update( network_simulator, time );
 
         netcode_client_update( client, time );
+        netcode_client_update_state( client, time );
 
         netcode_client_update( client2, time );
+        netcode_client_update_state( client, time );
 
         netcode_server_update( server, time );
 
@@ -8097,6 +8123,7 @@ void test_client_side_disconnect()
         netcode_network_simulator_update( network_simulator, time );
 
         netcode_client_update( client, time );
+        netcode_client_update_state( client, time );
 
         netcode_server_update( server, time );
 
@@ -8124,6 +8151,7 @@ void test_client_side_disconnect()
         netcode_network_simulator_update( network_simulator, time );
 
         netcode_client_update( client, time );
+        netcode_client_update_state( client, time );
 
         netcode_server_update( server, time );
 
@@ -8191,6 +8219,7 @@ void test_server_side_disconnect()
         netcode_network_simulator_update( network_simulator, time );
 
         netcode_client_update( client, time );
+        netcode_client_update_state( client, time );
 
         netcode_server_update( server, time );
 
@@ -8210,7 +8239,7 @@ void test_server_side_disconnect()
 
     // disconnect server side and verify that the client disconnects cleanly, rather than timing out.
 
-    netcode_server_disconnect_client( server, 0 );
+    netcode_server_disconnect_client(server, 0, NETCODE_SERVER_DISCONNECT_QUIT);
 
     int i;
     for ( i = 0; i < 10; ++i )
@@ -8218,6 +8247,7 @@ void test_server_side_disconnect()
         netcode_network_simulator_update( network_simulator, time );
 
         netcode_client_update( client, time );
+        netcode_client_update_state( client, time );
 
         netcode_server_update( server, time );
 
@@ -8291,6 +8321,7 @@ void test_client_reconnect()
         netcode_network_simulator_update( network_simulator, time );
 
         netcode_client_update( client, time );
+        netcode_client_update_state( client, time );
 
         netcode_server_update( server, time );
 
@@ -8312,13 +8343,14 @@ void test_client_reconnect()
 
     netcode_network_simulator_reset( network_simulator );
 
-    netcode_server_disconnect_client( server, 0 );
+    netcode_server_disconnect_client(server, 0, NETCODE_SERVER_DISCONNECT_QUIT);
 
     while ( 1 )
     {
         netcode_network_simulator_update( network_simulator, time );
 
         netcode_client_update( client, time );
+        netcode_client_update_state( client, time );
 
         netcode_server_update( server, time );
 
@@ -8345,6 +8377,7 @@ void test_client_reconnect()
         netcode_network_simulator_update( network_simulator, time );
 
         netcode_client_update( client, time );
+        netcode_client_update_state( client, time );
 
         netcode_server_update( server, time );
 
@@ -8462,6 +8495,7 @@ void test_disable_timeout()
         netcode_network_simulator_update( network_simulator, time );
 
         netcode_client_update( client, time );
+        netcode_client_update_state( client, time );
 
         netcode_server_update( server, time );
 
@@ -8492,6 +8526,7 @@ void test_disable_timeout()
         netcode_network_simulator_update( network_simulator, time );
 
         netcode_client_update( client, time );
+        netcode_client_update_state( client, time );
 
         netcode_server_update( server, time );
 
@@ -8531,7 +8566,7 @@ void test_disable_timeout()
         {
             if ( netcode_server_client_connected( server, 0 ) )
             {
-                netcode_server_disconnect_client( server, 0 );
+				netcode_server_disconnect_client(server, 0, NETCODE_SERVER_DISCONNECT_QUIT);
             }
         }
 
@@ -8634,6 +8669,7 @@ void test_loopback()
         netcode_network_simulator_update( network_simulator, time );
 
         netcode_client_update( regular_client, time );
+        netcode_client_update_state( regular_client, time );
 
         netcode_server_update( server, time );
 
@@ -8671,6 +8707,7 @@ void test_loopback()
         netcode_network_simulator_update( network_simulator, time );
 
         netcode_client_update( regular_client, time );
+        netcode_client_update_state( regular_client, time );
 
         netcode_server_update( server, time );
 
@@ -8803,6 +8840,7 @@ void test_loopback()
         netcode_network_simulator_update( network_simulator, time );
 
         netcode_client_update( regular_client, time );
+        netcode_client_update_state( regular_client, time );
 
         netcode_server_update( server, time );
 
@@ -8897,6 +8935,7 @@ void test_loopback()
     check( netcode_server_client_connected( server, 1 ) == 0 );
 
     netcode_client_update( loopback_client, time );
+    netcode_client_update_state( loopback_client, time );
 
     check( netcode_client_state( loopback_client ) == NETCODE_CLIENT_STATE_CONNECTED );
 

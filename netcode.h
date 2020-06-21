@@ -70,6 +70,12 @@
 #define NETCODE_CLIENT_STATE_SENDING_CONNECTION_RESPONSE        2
 #define NETCODE_CLIENT_STATE_CONNECTED                          3
 
+#define NETCODE_SERVER_DISCONNECT_ERROR -4
+#define NETCODE_SERVER_DISCONNECT_TIMEOUT -3
+#define NETCORE_SERVER_DISCONNECT_KICK_ALL -2
+#define NETCODE_SERVER_DISCONNECT_KICK -1
+#define NETCODE_SERVER_DISCONNECT_QUIT 0
+
 #define NETCODE_MAX_CLIENTS         256
 #define NETCODE_MAX_PACKET_SIZE     1200
 
@@ -135,7 +141,10 @@ void netcode_client_destroy( struct netcode_client_t * client );
 
 void netcode_client_connect( struct netcode_client_t * client, uint8_t * connect_token );
 
+// Update is split into update and update_state to allow receiving packets
+// on disconnect (otherwise resets all connection data)
 void netcode_client_update( struct netcode_client_t * client, double time );
+void netcode_client_update_state(struct netcode_client_t* client, double time);
 
 uint64_t netcode_client_next_packet_sequence( struct netcode_client_t * client );
 
@@ -187,7 +196,7 @@ struct netcode_server_config_t
     void (*free_function)(void*,void*);
     struct netcode_network_simulator_t * network_simulator;
     void * callback_context;
-    void (*connect_disconnect_callback)(void*,int,int);
+    void (*connect_disconnect_callback)(void*,int,int,int);
     void (*send_loopback_packet_callback)(void*,int,NETCODE_CONST uint8_t*,int,uint64_t);
     int override_send_and_receive;
     void (*send_packet_override)(void*,struct netcode_address_t*,NETCODE_CONST uint8_t*,int);
@@ -216,7 +225,7 @@ uint64_t netcode_server_client_id( struct netcode_server_t * server, int client_
 
 struct netcode_address_t * netcode_server_client_address( struct netcode_server_t * server, int client_index );
 
-void netcode_server_disconnect_client( struct netcode_server_t * server, int client_index );
+void netcode_server_disconnect_client( struct netcode_server_t * server, int client_index, int reason );
 
 void netcode_server_disconnect_all_clients( struct netcode_server_t * server );
 
@@ -236,7 +245,7 @@ void netcode_server_process_packet( struct netcode_server_t * server, struct net
 
 void netcode_server_connect_loopback_client( struct netcode_server_t * server, int client_index, uint64_t client_id, NETCODE_CONST uint8_t * user_data );
 
-void netcode_server_disconnect_loopback_client( struct netcode_server_t * server, int client_index );
+void netcode_server_disconnect_loopback_client( struct netcode_server_t * server, int client_index, int reason );
 
 int netcode_server_client_loopback( struct netcode_server_t * server, int client_index );
 
