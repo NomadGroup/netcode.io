@@ -259,7 +259,7 @@ void netcode_set_printf_function( int (*function)( NETCODE_CONST char *, ... ) )
 
 extern void (*netcode_assert_function)( NETCODE_CONST char *, NETCODE_CONST char *, NETCODE_CONST char * file, int line );
 
-#ifndef NDEBUG
+#ifndef NETCODE_NDEBUG
 #define netcode_assert( condition )                                                         \
 do                                                                                          \
 {                                                                                           \

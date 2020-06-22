@@ -5277,7 +5277,7 @@ static void check_handler( NETCODE_CONST char * condition,
                            int line )
 {
     printf( "check failed: ( %s ), function %s, file %s, line %d\n", condition, function, file, line );
-#ifndef NDEBUG
+#ifndef NETCODE_NDEBUG
     #if defined( __GNUC__ )
         __builtin_trap();
     #elif defined( _MSC_VER )
