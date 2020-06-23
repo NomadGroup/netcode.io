@@ -44,7 +44,7 @@
 #define NETCODE_CONNECT_TOKEN_NONCE_BYTES 24
 #define NETCODE_CONNECT_TOKEN_PRIVATE_BYTES 1024
 #define NETCODE_CHALLENGE_TOKEN_BYTES 300
-#define NETCODE_VERSION_INFO_BYTES 13
+#define NETCODE_VERSION_INFO_BYTES 17
 #define NETCODE_MAX_PACKET_BYTES 1300
 #define NETCODE_MAX_PAYLOAD_BYTES 1200
 #define NETCODE_MAX_ADDRESS_STRING_LENGTH 256
@@ -57,7 +57,7 @@
 #define NETCODE_SERVER_SOCKET_SNDBUF_SIZE ( 4 * 1024 * 1024 )
 #define NETCODE_SERVER_SOCKET_RCVBUF_SIZE ( 4 * 1024 * 1024 )
 
-#define NETCODE_VERSION_INFO ( (uint8_t*) "NETCODE 1.02" )
+#define NETCODE_VERSION_INFO ( (uint8_t*) "NETCODE 1.02-NMD" )
 #define NETCODE_PACKET_SEND_RATE 10.0
 #define NETCODE_NUM_DISCONNECT_PACKETS 10
 
@@ -1538,7 +1538,7 @@ int netcode_write_packet( void * packet, uint8_t * buffer, int buffer_length, ui
     {
         // connection request packet: first byte is zero
 
-        netcode_assert( buffer_length >= 1 + 13 + 8 + 8 + NETCODE_CONNECT_TOKEN_NONCE_BYTES + NETCODE_CONNECT_TOKEN_PRIVATE_BYTES );
+        netcode_assert( buffer_length >= 1 + 17 + 8 + 8 + NETCODE_CONNECT_TOKEN_NONCE_BYTES + NETCODE_CONNECT_TOKEN_PRIVATE_BYTES );
 
         struct netcode_connection_request_packet_t * p = (struct netcode_connection_request_packet_t*) packet;
 
@@ -1551,7 +1551,7 @@ int netcode_write_packet( void * packet, uint8_t * buffer, int buffer_length, ui
         netcode_write_bytes( &buffer, p->connect_token_nonce, NETCODE_CONNECT_TOKEN_NONCE_BYTES );
         netcode_write_bytes( &buffer, p->connect_token_data, NETCODE_CONNECT_TOKEN_PRIVATE_BYTES );
 
-        netcode_assert( buffer - start == 1 + 13 + 8 + 8 + NETCODE_CONNECT_TOKEN_NONCE_BYTES + NETCODE_CONNECT_TOKEN_PRIVATE_BYTES );
+        netcode_assert( buffer - start == 1 + 17 + 8 + 8 + NETCODE_CONNECT_TOKEN_NONCE_BYTES + NETCODE_CONNECT_TOKEN_PRIVATE_BYTES );
 
         return (int) ( buffer - start );
     }
@@ -1788,8 +1788,12 @@ void * netcode_read_packet( uint8_t * buffer,
              version_info[8]  != '1' ||
              version_info[9]  != '.' ||
              version_info[10] != '0' ||
-             version_info[11] != '2' ||
-             version_info[12] != '\0' )
+             version_info[11] != '2' || 
+             version_info[12] != '-' || 
+             version_info[13] != 'N' || 
+             version_info[14] != 'M' || 
+             version_info[15] != 'D' || 
+             version_info[16] != '\0')
         {
             netcode_printf( NETCODE_LOG_LEVEL_DEBUG, "ignored connection request packet. bad version info\n" );
             return NULL;
@@ -2218,9 +2222,13 @@ int netcode_read_connect_token( uint8_t * buffer, int buffer_length, struct netc
          connect_token->version_info[9]  != '.' ||
          connect_token->version_info[10] != '0' ||
          connect_token->version_info[11] != '2' ||
-         connect_token->version_info[12] != '\0' )
+         connect_token->version_info[12] != '-' ||
+         connect_token->version_info[13] != 'N' ||
+         connect_token->version_info[14] != 'M' ||
+         connect_token->version_info[15] != 'D' ||
+         connect_token->version_info[16] != '\0' )
     {
-        connect_token->version_info[12] = '\0';
+        connect_token->version_info[16] = '\0';
         netcode_printf( NETCODE_LOG_LEVEL_ERROR, "error: read connect data has bad version info (got %s, expected %s)\n", connect_token->version_info, NETCODE_VERSION_INFO );
         return NETCODE_ERROR;
     }
