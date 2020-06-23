@@ -1433,7 +1433,8 @@ int netcode_read_challenge_token( uint8_t * buffer, int buffer_length, struct ne
 #define NETCODE_CONNECTION_KEEP_ALIVE_PACKET        4
 #define NETCODE_CONNECTION_PAYLOAD_PACKET           5
 #define NETCODE_CONNECTION_DISCONNECT_PACKET        6
-#define NETCODE_CONNECTION_NUM_PACKETS              7
+#define NETCODE_CONNECTION_QUERY_PACKET             255
+#define NETCODE_CONNECTION_NUM_PACKETS              8
 
 struct netcode_connection_request_packet_t
 {
@@ -1848,6 +1849,32 @@ void * netcode_read_packet( uint8_t * buffer,
         netcode_read_bytes( &buffer, packet->connect_token_data, NETCODE_CONNECT_TOKEN_PRIVATE_BYTES );
 
         netcode_assert( buffer - start == 1 + NETCODE_VERSION_INFO_BYTES + 8 + 8 + NETCODE_CONNECT_TOKEN_NONCE_BYTES + NETCODE_CONNECT_TOKEN_PRIVATE_BYTES );
+
+        return packet;
+    }
+    else if(prefix_byte == NETCODE_CONNECTION_QUERY_PACKET)
+    {
+        if(buffer_length < 1 /* header */ + 1 /* query type */) {
+            netcode_printf( NETCODE_LOG_LEVEL_DEBUG, "ignored query packet. bad packet length (expected %d, got %d)\n", 1 + 1, buffer_length );
+            return NULL;
+        }
+        
+        if (buffer_length > 1 /* header */ + 1 /* query type */ + NETCODE_QUERY_PACKET_MAX_PAYLOAD) {
+			netcode_printf(NETCODE_LOG_LEVEL_DEBUG, "ignored query packet. packet is too big to be valid (%d bytes total, max %d payload)\n", buffer_length, NETCODE_QUERY_PACKET_MAX_PAYLOAD);
+			return NULL;
+        }
+
+        struct netcode_connection_query_packet_t* packet = (struct netcode_connection_query_packet_t*)
+			allocate_function(allocator_context, sizeof(struct netcode_connection_query_packet_t));
+
+        packet->header = prefix_byte;
+        packet->query_type = netcode_read_uint8(&buffer);
+        packet->payload_size = buffer_length - 1 /* header */ - 1 /* query type */;
+
+        if (packet->payload_size > NETCODE_QUERY_PACKET_MAX_PAYLOAD) {
+			netcode_printf(NETCODE_LOG_LEVEL_DEBUG, "ignored query packet. payload is too big to be valid (%d bytes, max %d payload)\n", packet->payload_size, NETCODE_QUERY_PACKET_MAX_PAYLOAD);
+			return NULL;
+		}
 
         return packet;
     }
@@ -3798,6 +3825,7 @@ void netcode_default_server_config( struct netcode_server_config_t * config )
     config->override_send_and_receive = 0;
     config->send_packet_override = NULL;
     config->receive_packet_override = NULL;
+	config->handle_query_packet_callback = NULL;
 };
 
 struct netcode_server_t
@@ -4099,6 +4127,19 @@ void netcode_server_send_client_packet( struct netcode_server_t * server, void *
     server->client_sequence[client_index]++;
 
     server->client_last_packet_send_time[client_index] = server->time;
+}
+
+void netcode_server_send_packet_to_address(struct netcode_server_t* server, struct netcode_address_t* to, NETCODE_CONST uint8_t* packet_data, int packet_bytes)
+{
+	netcode_assert(server);
+	netcode_assert(to);
+    netcode_assert(packet_data);
+
+	if (to->type == NETCODE_ADDRESS_IPV4) {
+		netcode_socket_send_packet(&server->socket_holder.ipv4, to, packet_data, packet_bytes);
+	} else if (to->type == NETCODE_ADDRESS_IPV6) {
+		netcode_socket_send_packet(&server->socket_holder.ipv6, to, packet_data, packet_bytes);
+    }
 }
 
 void netcode_server_disconnect_client_internal( struct netcode_server_t * server, int client_index, int send_disconnect_packets, int reason )
@@ -4514,6 +4555,13 @@ void netcode_server_process_packet_internal( struct netcode_server_t * server,
         }
         break;
 
+        case NETCODE_CONNECTION_QUERY_PACKET:
+		{
+            if (server->config.handle_query_packet_callback) {
+                server->config.handle_query_packet_callback(server->config.callback_context, from, (struct netcode_connection_query_packet_t*)packet);
+            }
+		} break;
+
         case NETCODE_CONNECTION_RESPONSE_PACKET:
         {    
             if ( ( server->flags & NETCODE_SERVER_FLAG_IGNORE_CONNECTION_RESPONSE_PACKETS ) == 0 )
@@ -4603,7 +4651,7 @@ void netcode_server_process_packet( struct netcode_server_t * server, struct net
     
     uint8_t * read_packet_key = netcode_encryption_manager_get_receive_key( &server->encryption_manager, encryption_index );
 
-    if ( !read_packet_key && packet_data[0] != 0 )
+    if ( !read_packet_key && !(packet_data[0] == NETCODE_CONNECTION_REQUEST_PACKET || packet_data[0] == NETCODE_CONNECTION_QUERY_PACKET)  )
     {
         char address_string[NETCODE_MAX_ADDRESS_STRING_LENGTH];
         netcode_printf( NETCODE_LOG_LEVEL_DEBUG, "server could not process packet because no encryption mapping exists for %s\n", netcode_address_to_string( from, address_string ) );
@@ -4658,7 +4706,7 @@ void netcode_server_read_and_process_packet( struct netcode_server_t * server,
     
     uint8_t * read_packet_key = netcode_encryption_manager_get_receive_key( &server->encryption_manager, encryption_index );
 
-    if ( !read_packet_key && packet_data[0] != 0 )
+    if (!read_packet_key && !(packet_data[0] == NETCODE_CONNECTION_REQUEST_PACKET || packet_data[0] == NETCODE_CONNECTION_QUERY_PACKET))
     {
         char address_string[NETCODE_MAX_ADDRESS_STRING_LENGTH];
         netcode_printf( NETCODE_LOG_LEVEL_DEBUG, "server could not process packet because no encryption mapping exists for %s\n", netcode_address_to_string( from, address_string ) );

@@ -113,6 +113,15 @@ struct netcode_address_t
     uint8_t type;
 };
 
+#define NETCODE_QUERY_PACKET_MAX_PAYLOAD 64
+struct netcode_connection_query_packet_t {
+	uint8_t header;
+	uint8_t query_type;
+
+	uint8_t payload[NETCODE_QUERY_PACKET_MAX_PAYLOAD];
+	uint8_t payload_size;
+};
+
 int netcode_parse_address( NETCODE_CONST char * address_string_in, struct netcode_address_t * address );
 
 char * netcode_address_to_string( struct netcode_address_t * address, char * buffer );
@@ -201,6 +210,8 @@ struct netcode_server_config_t
     int override_send_and_receive;
     void (*send_packet_override)(void*,struct netcode_address_t*,NETCODE_CONST uint8_t*,int);
     int (*receive_packet_override)(void*,struct netcode_address_t*,uint8_t*,int);
+
+    void (*handle_query_packet_callback)(void*, struct netcode_address_t*, struct netcode_connection_query_packet_t*);
 };
 
 void netcode_default_server_config( struct netcode_server_config_t * config );
@@ -232,6 +243,8 @@ void netcode_server_disconnect_all_clients( struct netcode_server_t * server );
 uint64_t netcode_server_next_packet_sequence( struct netcode_server_t * server, int client_index );
 
 void netcode_server_send_packet( struct netcode_server_t * server, int client_index, NETCODE_CONST uint8_t * packet_data, int packet_bytes );
+
+void netcode_server_send_packet_to_address(struct netcode_server_t* server, struct netcode_address_t* to, NETCODE_CONST uint8_t* packet_data, int packet_bytes);
 
 uint8_t * netcode_server_receive_packet( struct netcode_server_t * server, int client_index, int * packet_bytes, uint64_t * packet_sequence );
 
