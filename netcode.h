@@ -140,6 +140,14 @@ struct netcode_client_config_t
     int override_send_and_receive;
     void (*send_packet_override)(void*,struct netcode_address_t*,NETCODE_CONST uint8_t*,int);
     int (*receive_packet_override)(void*,struct netcode_address_t*,uint8_t*,int);
+
+    // set to 1 if you wish to receive packets even when the client is not connected
+    // uses client address type (ipv4/6)
+    int listen_when_not_connected;
+
+    // handle server query response
+    // requires listen_when_not_connected = 1
+    void (*handle_query_packet_callback)(void*, struct netcode_address_t*, struct netcode_connection_query_packet_t*);
 };
 
 void netcode_default_client_config( struct netcode_client_config_t * config );
@@ -158,6 +166,8 @@ void netcode_client_update_state(struct netcode_client_t* client, double time);
 uint64_t netcode_client_next_packet_sequence( struct netcode_client_t * client );
 
 void netcode_client_send_packet( struct netcode_client_t * client, NETCODE_CONST uint8_t * packet_data, int packet_bytes );
+
+void netcode_client_send_packet_to_address(struct netcode_client_t* client, struct netcode_address_t* to, NETCODE_CONST uint8_t* packet_data, int packet_bytes);
 
 uint8_t * netcode_client_receive_packet( struct netcode_client_t * client, int * packet_bytes, uint64_t * packet_sequence );
 
@@ -211,6 +221,7 @@ struct netcode_server_config_t
     void (*send_packet_override)(void*,struct netcode_address_t*,NETCODE_CONST uint8_t*,int);
     int (*receive_packet_override)(void*,struct netcode_address_t*,uint8_t*,int);
 
+    // handle server query
     void (*handle_query_packet_callback)(void*, struct netcode_address_t*, struct netcode_connection_query_packet_t*);
 };
 

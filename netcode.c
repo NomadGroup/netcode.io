@@ -2668,6 +2668,8 @@ void netcode_default_client_config( struct netcode_client_config_t * config )
     config->override_send_and_receive = 0;
     config->send_packet_override = NULL;
     config->receive_packet_override = NULL;
+    config->listen_when_not_connected = 0;
+	config->handle_query_packet_callback = NULL;
 };
 
 struct netcode_client_t
@@ -2959,6 +2961,12 @@ void netcode_client_process_packet_internal( struct netcode_client_t * client, s
         }
         break;
 
+        case NETCODE_CONNECTION_QUERY_PACKET: {
+			if (client->config.listen_when_not_connected == 1 && client->config.handle_query_packet_callback) {
+				client->config.handle_query_packet_callback(client->config.callback_context, from, (struct netcode_connection_query_packet_t*)packet);
+			}
+		} break;
+
         case NETCODE_CONNECTION_CHALLENGE_PACKET:
         {
             if ( client->state == NETCODE_CLIENT_STATE_SENDING_CONNECTION_REQUEST && netcode_address_equal( from, &client->server_address ) )
@@ -3112,6 +3120,14 @@ void netcode_client_receive_packets( struct netcode_client_t * client )
             {
                 packet_bytes = netcode_socket_receive_packet( &client->socket_holder.ipv6, &from, packet_data, NETCODE_MAX_PACKET_BYTES );
             }
+            else if(client->config.listen_when_not_connected == 1)
+            {
+				if (client->address.type == NETCODE_ADDRESS_IPV4) {
+					packet_bytes = netcode_socket_receive_packet(&client->socket_holder.ipv4, &from, packet_data, NETCODE_MAX_PACKET_BYTES);
+				} else if (client->address.type == NETCODE_ADDRESS_IPV6) {
+					packet_bytes = netcode_socket_receive_packet(&client->socket_holder.ipv6, &from, packet_data, NETCODE_MAX_PACKET_BYTES);
+				}
+			}
 
             if ( packet_bytes == 0 )
                 break;
@@ -3210,6 +3226,19 @@ void netcode_client_send_packet_to_server_internal( struct netcode_client_t * cl
     }
 
     client->last_packet_send_time = client->time;
+}
+
+void netcode_client_send_packet_to_address(struct netcode_client_t* client, struct netcode_address_t* to, NETCODE_CONST uint8_t* packet_data, int packet_bytes)
+{
+	netcode_assert(client);
+	netcode_assert(to);
+	netcode_assert(packet_data);
+
+	if (to->type == NETCODE_ADDRESS_IPV4) {
+		netcode_socket_send_packet(&client->socket_holder.ipv4, to, packet_data, packet_bytes);
+	} else if (to->type == NETCODE_ADDRESS_IPV6) {
+		netcode_socket_send_packet(&client->socket_holder.ipv6, to, packet_data, packet_bytes);
+	}
 }
 
 void netcode_client_send_packets( struct netcode_client_t * client )
